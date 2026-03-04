@@ -1,0 +1,24 @@
+# UrbanSound8K dataset folds (large audio files - do not push to GitHub)
+fold1/
+fold2/
+fold3/
+fold4/
+fold5/
+fold6/
+fold7/
+fold8/
+fold9/
+fold10/
+
+# CSV dataset file
+*.csv
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.ipynb_checkpoints/
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
