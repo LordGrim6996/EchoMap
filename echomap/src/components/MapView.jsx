@@ -20,6 +20,13 @@ L.Marker.prototype.options.icon = DefaultIcon;
 // Default fallback center (Los Angeles)
 const DEFAULT_CENTER = [34.0522, -118.2437];
 
+// ── Time-of-day helpers ────────────────────────────────────────────────────────
+// Day  = 06:00 – 21:59  |  Night = 22:00 – 05:59
+const getTimeSlot = (timestamp) => {
+    const h = new Date(timestamp).getHours();
+    return h >= 6 && h < 22 ? 'day' : 'night';
+};
+
 // Component to programmatically fly the map to a new center
 const FlyToLocation = ({ center }) => {
     const map = useMap();
@@ -31,17 +38,6 @@ const FlyToLocation = ({ center }) => {
     return null;
 };
 
-// Noise type filter options
-const NOISE_TYPES = [
-    'All',
-    'Air Conditioner', 'Car Horn', 'Children Playing', 'Dog Bark',
-    'Drilling', 'Engine Idling', 'Gun Shot', 'Jackhammer',
-    'Siren/Alarm', 'Street Music',
-    // Legacy labels from mock data
-    'City Traffic', 'Construction', 'Nature/Birds', 'People/Crowd',
-    'Quiet Background', 'Industrial Hum',
-];
-
 const MapView = () => {
     const [readings, setReadings] = useState([])
     const [loading, setLoading] = useState(true)
@@ -49,6 +45,8 @@ const MapView = () => {
     const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER)
     const [activeFilter, setActiveFilter] = useState('All')
     const [locatingUser, setLocatingUser] = useState(false)
+    // 'all' | 'day' | 'night'
+    const [timeFilter, setTimeFilter] = useState('all')
 
     // Get user location on mount
     useEffect(() => {
@@ -61,7 +59,6 @@ const MapView = () => {
                 },
                 (error) => {
                     console.warn('Geolocation error on mount:', error.message);
-                    // Keep default center
                 },
                 { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
             );
@@ -112,17 +109,66 @@ const MapView = () => {
         return 17
     }
 
-    // Get unique noise types present in readings
+    // Noise-type filter
     const availableTypes = ['All', ...new Set(readings.map(r => r.type))];
-
-    // Filter readings
-    const filteredReadings = activeFilter === 'All'
+    const typeFilteredReadings = activeFilter === 'All'
         ? readings
         : readings.filter(r => r.type === activeFilter);
 
+    // Active (bright) vs dimmed readings based on time filter
+    const isActive = (point) =>
+        timeFilter === 'all' || getTimeSlot(point.timestamp) === timeFilter;
+
+    // Count helpers for the footer
+    const activeCount = typeFilteredReadings.filter(r => isActive(r)).length;
+
+    // Day/night slot counts (across all type-filtered readings)
+    const dayCnt   = readings.filter(r => getTimeSlot(r.timestamp) === 'day').length;
+    const nightCnt = readings.filter(r => getTimeSlot(r.timestamp) === 'night').length;
+
     return (
         <div className="flex flex-col gap-3">
-            {/* Filter bar */}
+
+            {/* ── Day / Night Toggle ── */}
+            <div className="flex items-center justify-center gap-2 bg-slate-800/60 rounded-2xl p-1.5 border border-white/10">
+                <button
+                    id="time-filter-all"
+                    onClick={() => setTimeFilter('all')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold transition-all duration-250 ${
+                        timeFilter === 'all'
+                            ? 'bg-slate-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-white'
+                    }`}
+                >
+                    🕐 All
+                </button>
+                <button
+                    id="time-filter-day"
+                    onClick={() => setTimeFilter('day')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold transition-all duration-250 ${
+                        timeFilter === 'day'
+                            ? 'bg-gradient-to-r from-amber-400 to-orange-400 text-slate-900 shadow-md shadow-amber-400/30'
+                            : 'text-slate-400 hover:text-white'
+                    }`}
+                >
+                    ☀️ Day
+                    <span className={`text-[10px] opacity-70`}>({dayCnt})</span>
+                </button>
+                <button
+                    id="time-filter-night"
+                    onClick={() => setTimeFilter('night')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold transition-all duration-250 ${
+                        timeFilter === 'night'
+                            ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-md shadow-indigo-500/30'
+                            : 'text-slate-400 hover:text-white'
+                    }`}
+                >
+                    🌙 Night
+                    <span className={`text-[10px] opacity-70`}>({nightCnt})</span>
+                </button>
+            </div>
+
+            {/* ── Noise-type Filter chips ── */}
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
                 {availableTypes.map(type => (
                     <button
@@ -143,8 +189,8 @@ const MapView = () => {
                 ))}
             </div>
 
-            {/* Map container */}
-            <div className="h-[400px] w-full rounded-xl overflow-hidden border border-white/20 relative z-0">
+            {/* ── Map container ── */}
+            <div className="h-[380px] w-full rounded-xl overflow-hidden border border-white/20 relative z-0">
                 {loading ? (
                     <div className="h-full w-full flex items-center justify-center bg-slate-800">
                         <div className="flex flex-col items-center gap-3">
@@ -183,34 +229,47 @@ const MapView = () => {
                             </CircleMarker>
                         )}
 
-                        {/* Noise reading markers */}
-                        {filteredReadings.map(point => (
-                            <CircleMarker
-                                key={point.id}
-                                center={[point.lat, point.lng]}
-                                pathOptions={{
-                                    color: getColor(point.db),
-                                    fillColor: getColor(point.db),
-                                    fillOpacity: 0.6,
-                                    weight: 2,
-                                }}
-                                radius={getRadius(point.db)}
-                            >
-                                <Popup>
-                                    <div className="text-slate-900 font-sans min-w-[120px]">
-                                        <strong className="text-violet-600 uppercase text-xs tracking-wider block mb-1">
-                                            {point.type}
-                                        </strong>
-                                        <span className="font-bold text-lg">{point.db} dB</span>
-                                        {point.timestamp && (
-                                            <div className="text-xs text-slate-500 mt-1">
-                                                {new Date(point.timestamp).toLocaleString()}
+                        {/* Noise reading markers — dimmed if outside active time window */}
+                        {typeFilteredReadings.map(point => {
+                            const active = isActive(point);
+                            const color = getColor(point.db);
+                            return (
+                                <CircleMarker
+                                    key={point.id}
+                                    center={[point.lat, point.lng]}
+                                    pathOptions={{
+                                        color: active ? color : '#64748b',
+                                        fillColor: active ? color : '#64748b',
+                                        fillOpacity: active ? 0.75 : 0.15,
+                                        weight: active ? 2 : 1,
+                                        opacity: active ? 1 : 0.3,
+                                    }}
+                                    radius={active ? getRadius(point.db) : 6}
+                                >
+                                    <Popup>
+                                        <div className="text-slate-900 font-sans min-w-[140px]">
+                                            <strong className="text-violet-600 uppercase text-xs tracking-wider block mb-1">
+                                                {point.type}
+                                            </strong>
+                                            <span className="font-bold text-lg">{point.db} dB</span>
+                                            <div className="flex items-center gap-1 mt-1">
+                                                <span className="text-xs font-medium px-1.5 py-0.5 rounded-full" style={{
+                                                    background: getTimeSlot(point.timestamp) === 'day' ? '#fef3c7' : '#ede9fe',
+                                                    color: getTimeSlot(point.timestamp) === 'day' ? '#92400e' : '#5b21b6',
+                                                }}>
+                                                    {getTimeSlot(point.timestamp) === 'day' ? '☀️ Day' : '🌙 Night'}
+                                                </span>
                                             </div>
-                                        )}
-                                    </div>
-                                </Popup>
-                            </CircleMarker>
-                        ))}
+                                            {point.timestamp && (
+                                                <div className="text-xs text-slate-500 mt-1">
+                                                    {new Date(point.timestamp).toLocaleString()}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </Popup>
+                                </CircleMarker>
+                            );
+                        })}
                     </MapContainer>
                 )}
 
@@ -235,9 +294,17 @@ const MapView = () => {
                 </button>
             </div>
 
-            {/* Reading count */}
+            {/* Reading count footer */}
             <div className="text-center text-xs text-slate-500">
-                Showing {filteredReadings.length} of {readings.length} readings
+                {timeFilter === 'all'
+                    ? <>Showing all {typeFilteredReadings.length} readings</>
+                    : <>
+                        <span className={timeFilter === 'day' ? 'text-amber-400 font-semibold' : 'text-indigo-400 font-semibold'}>
+                            {timeFilter === 'day' ? '☀️ Day' : '🌙 Night'}
+                        </span>
+                        {' '}— {activeCount} of {typeFilteredReadings.length} readings highlighted
+                    </>
+                }
                 {activeFilter !== 'All' && (
                     <button
                         onClick={() => setActiveFilter('All')}
@@ -252,3 +319,4 @@ const MapView = () => {
 }
 
 export default MapView
+
