@@ -2,7 +2,10 @@
  * Noise reading service.
  * Uses Firestore when Firebase is enabled, falls back to localStorage.
  */
-import { FIREBASE_ENABLED, db, currentUserId, collection, addDoc, getDocs, query, orderBy, limit } from './firebase';
+import { FIREBASE_ENABLED, db, auth, collection, addDoc, getDocs, query, orderBy, limit } from './firebase';
+
+// Dynamically resolve the current user's UID at write time
+const getCurrentUserId = () => auth?.currentUser?.uid ?? 'anonymous';
 
 const STORAGE_KEY = 'echomap_readings';
 
@@ -53,7 +56,7 @@ const firestoreAddReading = async (reading) => {
         const docData = {
             ...reading,
             timestamp: Date.now(),
-            userId: currentUserId || 'anonymous',
+            userId: getCurrentUserId(),
             lat: reading.lat || (34.0522 + (Math.random() - 0.5) * 0.01),
             lng: reading.lng || (-118.2437 + (Math.random() - 0.5) * 0.01),
         };

@@ -1,74 +1,120 @@
 /**
  * authService.js
- * 
- * localStorage-based auth service.
- * Designed to be swappable with Firebase email/password auth:
- * just replace the signup/login/logout internals — no UI changes needed.
+ *
+ * Dual-mode auth service:
+ * - When FIREBASE_ENABLED = false → uses localStorage (demo/offline mode)
+ * - When FIREBASE_ENABLED = true  → uses Firebase Email/Password Auth
+ *
+ * The public API is identical in both modes, so no UI components change.
  */
 
-const USERS_KEY = 'echomap_users';
+import {
+  FIREBASE_ENABLED,
+  auth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  updateProfile,
+} from './firebase';
+
+// ─── Firebase Auth implementation ────────────────────────────────────────────
+
+const firebaseOnAuthChange = (callback) => {
+  const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    if (firebaseUser) {
+      callback({
+        uid: firebaseUser.uid,
+        name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+        email: firebaseUser.email,
+      });
+    } else {
+      callback(null);
+    }
+  });
+  return unsubscribe;
+};
+
+const firebaseSignup = async (name, email, password) => {
+  if (!name.trim()) throw new Error('Name is required.');
+  if (!email.trim()) throw new Error('Email is required.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address.');
+  if (password.length < 6) throw new Error('Password must be at least 6 characters.');
+
+  const credential = await createUserWithEmailAndPassword(auth, email, password);
+  // Store display name on the Firebase profile
+  await updateProfile(credential.user, { displayName: name.trim() });
+  return {
+    user: {
+      uid: credential.user.uid,
+      name: name.trim(),
+      email: credential.user.email,
+    },
+  };
+};
+
+const firebaseLogin = async (email, password) => {
+  if (!email.trim()) throw new Error('Email is required.');
+  if (!password) throw new Error('Password is required.');
+
+  const credential = await signInWithEmailAndPassword(auth, email, password);
+  return {
+    user: {
+      uid: credential.user.uid,
+      name: credential.user.displayName || credential.user.email.split('@')[0],
+      email: credential.user.email,
+    },
+  };
+};
+
+const firebaseLogout = () => signOut(auth);
+
+const firebaseGetCurrentUser = () => {
+  const u = auth?.currentUser;
+  if (!u) return null;
+  return {
+    uid: u.uid,
+    name: u.displayName || u.email.split('@')[0],
+    email: u.email,
+  };
+};
+
+// ─── LocalStorage Auth implementation (offline / demo fallback) ───────────────
+
+const USERS_KEY   = 'echomap_users';
 const SESSION_KEY = 'echomap_session';
 
-/** Simple encode — not cryptographic, FYP/demo only. */
-function encode(str) {
-  return btoa(encodeURIComponent(str));
-}
-
+function encode(str) { return btoa(encodeURIComponent(str)); }
 function getUsers() {
+  try { return JSON.parse(localStorage.getItem(USERS_KEY) || '{}'); } catch { return {}; }
+}
+function saveUsers(u) { localStorage.setItem(USERS_KEY, JSON.stringify(u)); }
+function generateUid() { return 'local_' + Math.random().toString(36).slice(2) + Date.now().toString(36); }
+
+const localListeners = new Set();
+function notifyListeners(user) { localListeners.forEach(cb => cb(user)); }
+
+const localOnAuthChange = (callback) => {
+  localListeners.add(callback);
+  callback(localGetCurrentUser());
+  return () => localListeners.delete(callback);
+};
+
+function localGetCurrentUser() {
   try {
-    return JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
-  } catch {
-    return {};
-  }
+    const s = localStorage.getItem(SESSION_KEY);
+    return s ? JSON.parse(s) : null;
+  } catch { return null; }
 }
 
-function saveUsers(users) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-function generateUid() {
-  return 'local_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-
-// ─── Auth listeners ───────────────────────────────────────────────────────────
-const listeners = new Set();
-
-function notifyListeners(user) {
-  listeners.forEach(cb => cb(user));
-}
-
-export function onAuthChange(callback) {
-  listeners.add(callback);
-  // Fire immediately with current state
-  callback(getCurrentUser());
-  return () => listeners.delete(callback); // unsubscribe fn
-}
-
-// ─── Core API ─────────────────────────────────────────────────────────────────
-
-export function getCurrentUser() {
-  try {
-    const session = localStorage.getItem(SESSION_KEY);
-    return session ? JSON.parse(session) : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Create a new account.
- * @returns {{ user }} on success
- * @throws  {Error}   with a human-readable message on failure
- */
-export function signup(name, email, password) {
+const localSignup = (name, email, password) => {
   if (!name.trim()) throw new Error('Name is required.');
   if (!email.trim()) throw new Error('Email is required.');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address.');
   if (password.length < 6) throw new Error('Password must be at least 6 characters.');
 
   const users = getUsers();
-  const key = email.toLowerCase();
-
+  const key   = email.toLowerCase();
   if (users[key]) throw new Error('An account with this email already exists.');
 
   const user = { uid: generateUid(), name: name.trim(), email: key };
@@ -78,19 +124,14 @@ export function signup(name, email, password) {
   localStorage.setItem(SESSION_KEY, JSON.stringify(user));
   notifyListeners(user);
   return { user };
-}
+};
 
-/**
- * Sign in with email + password.
- * @returns {{ user }} on success
- * @throws  {Error}   with a human-readable message on failure
- */
-export function login(email, password) {
+const localLogin = (email, password) => {
   if (!email.trim()) throw new Error('Email is required.');
   if (!password) throw new Error('Password is required.');
 
-  const users = getUsers();
-  const key = email.toLowerCase();
+  const users  = getUsers();
+  const key    = email.toLowerCase();
   const record = users[key];
 
   if (!record || record.password !== encode(password)) {
@@ -101,10 +142,17 @@ export function login(email, password) {
   localStorage.setItem(SESSION_KEY, JSON.stringify(user));
   notifyListeners(user);
   return { user };
-}
+};
 
-/** Sign out the current user. */
-export function logout() {
+const localLogout = () => {
   localStorage.removeItem(SESSION_KEY);
   notifyListeners(null);
-}
+};
+
+// ─── Public API — same interface regardless of mode ───────────────────────────
+
+export const onAuthChange     = FIREBASE_ENABLED ? firebaseOnAuthChange     : localOnAuthChange;
+export const signup           = FIREBASE_ENABLED ? firebaseSignup           : localSignup;
+export const login            = FIREBASE_ENABLED ? firebaseLogin            : localLogin;
+export const logout           = FIREBASE_ENABLED ? firebaseLogout           : localLogout;
+export const getCurrentUser   = FIREBASE_ENABLED ? firebaseGetCurrentUser   : localGetCurrentUser;

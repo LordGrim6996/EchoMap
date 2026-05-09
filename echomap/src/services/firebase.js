@@ -1,53 +1,63 @@
 /**
  * Firebase Configuration
- * 
- * To enable cloud storage:
- * 1. Create a project at https://console.firebase.google.com
- * 2. Enable Firestore Database and Anonymous Authentication
- * 3. Replace the placeholder values below with your Firebase config
+ *
+ * Setup steps:
+ * 1. Go to https://console.firebase.google.com
+ * 2. Create a project, enable Email/Password Auth + Firestore
+ * 3. Paste your firebaseConfig values below
  * 4. Set FIREBASE_ENABLED to true
  */
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit } from 'firebase/firestore';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  updateProfile,
+} from 'firebase/auth';
 
-// ⬇️ Set to true after entering your Firebase config
-export const FIREBASE_ENABLED = false;
-
+// ─── ⬇️ STEP 1: Paste your Firebase config here (done)───────────────────────────────
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "SENDER_ID",
-  appId: "APP_ID"
+  apiKey: "AIzaSyCHkP-fiU5FCgXVQgvceG_FfUJqRYhCy7A",
+  authDomain: "echomap-dd69a.firebaseapp.com",
+  projectId: "echomap-dd69a",
+  storageBucket: "echomap-dd69a.firebasestorage.app",
+  messagingSenderId: "114078551522",
+  appId: "1:114078551522:web:33bf8a068d2535f16cbdbb",
+  measurementId: "G-S0673HHT37"
 };
+
+// ─── ⬇️ STEP 2: Set this to true after pasting config (done)─────────────────────────
+export const FIREBASE_ENABLED = true;
+
+// ──────────────────────────────────────────────────────────────────────────────
 
 let app = null;
 let db = null;
 let auth = null;
-let currentUserId = null;
 
 if (FIREBASE_ENABLED) {
   try {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
-
-    // Sign in anonymously for frictionless use
-    signInAnonymously(auth).catch(err => {
-      console.warn('Anonymous auth failed:', err);
-    });
-
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
-        currentUserId = user.uid;
-        console.log('Signed in anonymously as:', user.uid);
-      }
-    });
+    console.log('Firebase initialized successfully.');
   } catch (err) {
     console.error('Firebase initialization failed:', err);
   }
 }
 
-export { db, auth, currentUserId, collection, addDoc, getDocs, query, orderBy, limit };
+export {
+  db,
+  auth,
+  // Firestore helpers
+  collection, addDoc, getDocs, query, orderBy, limit,
+  // Auth helpers — used by authService.js
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  updateProfile,
+};
